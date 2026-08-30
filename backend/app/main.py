@@ -2,7 +2,7 @@ import json
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import initialize_app, firestore
 import structlog
@@ -13,6 +13,8 @@ from .services.github_client import GitHubClient
 from .services.linkedin_client import LinkedInClient
 from .services.devto_client import DevToClient
 from .services.discord_client import DiscordClient
+from .db.firestore_client import FirestoreClient
+from .models.repo import RepoAnalysis
 
 logger = structlog.get_logger(__name__)
 db: firestore.Client | None = None
@@ -89,11 +91,13 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
     try:
         client = GitHubClient()
         lang_list = [l.strip() for l in languages.split(",") if l.strip()]
-        repos = client.search_trending(languages=lang_list, per_page=min(limit, 30))
+        safe_limit = max(1, min(limit, 30))
+        repos = client.search_trending(languages=lang_list, per_page=safe_limit)
 
         saved = []
         for repo in repos:
-            doc_ref = db.collection("discovered_repos").document()
+            if FirestoreClient().check_duplicate(repo["url"]):
+                continue
             doc_data = {
                 "github_url": repo["url"],
                 "source": "github_trending",
@@ -105,10 +109,12 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
                 "status": "pending_analysis",
                 "created_at": firestore.SERVER_TIMESTAMP,
             }
-            doc_ref.set(doc_data)
-            saved.append({"id": doc_ref.id, "name": repo["name"], "url": repo["url"]})
+            doc_id = FirestoreClient().create_repo(doc_data)
+            saved.append({"id": doc_id, "name": repo["name"], "url": repo["url"]})
 
         return {"status": "success", "count": len(saved), "repos": saved}
+    except HTTPException:
+        raise
     except Exception as e:
         log_safe_error("discover_repos", e)
         raise HTTPException(status_code=500, detail="Discovery failed")
@@ -157,8 +163,10 @@ README: {readme[:4000]}
 Return: {{"problem_solved":"...","tech_stack":[],"domain_tags":[],"novelty_score":0.0,"complexity":"intermediate","target_audience":"...","one_liner_hook":"...","key_files":[]}}"""
 
         response = gemini.models.generate_content(model=Config.GEMINI_MODEL, contents=prompt)
-        analysis_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-        analysis = json.loads(analysis_text)
+        analysis_text = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
+        if not analysis_text:
+            raise HTTPException(status_code=502, detail="Empty analysis response")
+        analysis = RepoAnalysis(**json.loads(analysis_text)).model_dump(mode="json")
 
         # Update Firestore
         db.collection("discovered_repos").document(repo_id).update({
@@ -168,6 +176,8 @@ Return: {{"problem_solved":"...","tech_stack":[],"domain_tags":[],"novelty_score
         })
 
         return {"status": "analyzed", "repo_id": repo_id, "analysis": analysis}
+    except HTTPException:
+        raise
     except Exception as e:
         log_safe_error("analyze_repo", e, {"repo_id": repo_id})
         raise HTTPException(status_code=500, detail="Analysis failed")
@@ -203,7 +213,9 @@ Analysis: {json.dumps(analysis)}
 Return ONLY the post text."""
 
         response = gemini.models.generate_content(model=Config.GEMINI_MODEL, contents=prompt)
-        post_text = response.text.strip()
+        post_text = (response.text or "").strip()
+        if not post_text:
+            raise HTTPException(status_code=502, detail="Empty LinkedIn post response")
 
         # Publish
         li = LinkedInClient()
@@ -224,10 +236,13 @@ Return ONLY the post text."""
         try:
             dc = DiscordClient()
             dc.send_notification(f"✅ LinkedIn post published: {result.get('post_url', 'N/A')}")
-        except Exception:
-            pass
+        except Exception as e:
+            log_safe_error("discord_notification", e)
 
+        db.collection("discovered_repos").document(repo_id).update({"status": "published", "published_at": firestore.SERVER_TIMESTAMP})
         return {"status": "published", "platform": "linkedin", "result": result}
+    except HTTPException:
+        raise
     except Exception as e:
         log_safe_error("publish_linkedin", e, {"repo_id": repo_id})
         raise HTTPException(status_code=500, detail="Publishing failed")
@@ -259,12 +274,16 @@ Analysis: {json.dumps(analysis)}
 Return ONLY the article markdown with title on first line as: # Title"""
 
         response = gemini.models.generate_content(model=Config.GEMINI_MODEL, contents=prompt)
-        article_text = response.text.strip()
+        article_text = (response.text or "").strip()
+        if not article_text:
+            raise HTTPException(status_code=502, detail="Empty Dev.to article response")
 
         # Extract title
         lines = article_text.split("\n")
         title = lines[0].replace("#", "").strip() if lines else analysis.get("raw_name", "DevRel Post")
         body = "\n".join(lines[1:]).strip()
+        if not body:
+            raise HTTPException(status_code=502, detail="Generated Dev.to article body is empty")
 
         # Publish
         devto = DevToClient()
@@ -286,10 +305,13 @@ Return ONLY the article markdown with title on first line as: # Title"""
         try:
             dc = DiscordClient()
             dc.send_notification(f"📝 Dev.to article published: {result.get('post_url', 'N/A')}")
-        except Exception:
-            pass
+        except Exception as e:
+            log_safe_error("discord_notification", e)
 
+        db.collection("discovered_repos").document(repo_id).update({"status": "published", "published_at": firestore.SERVER_TIMESTAMP})
         return {"status": "published", "platform": "devto", "result": result}
+    except HTTPException:
+        raise
     except Exception as e:
         log_safe_error("publish_devto", e, {"repo_id": repo_id})
         raise HTTPException(status_code=500, detail="Publishing failed")
@@ -305,10 +327,12 @@ async def list_repos(status: str = "", limit: int = 20) -> List[Dict[str, Any]]:
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+    if status and status not in {"pending_analysis", "analyzed", "approved", "rejected", "published", "failed"}:
+        raise HTTPException(status_code=400, detail="Invalid status")
     query = db.collection("discovered_repos").order_by("created_at", direction=firestore.Query.DESCENDING)
     if status:
         query = query.where("status", "==", status)
-    docs = query.limit(min(limit, 50)).stream()
+    docs = query.limit(max(1, min(limit, 50))).stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
 
@@ -318,7 +342,7 @@ async def list_posts(limit: int = 20) -> List[Dict[str, Any]]:
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    docs = db.collection("posts").order_by("created_at", direction=firestore.Query.DESCENDING).limit(min(limit, 50)).stream()
+    docs = db.collection("posts").order_by("created_at", direction=firestore.Query.DESCENDING).limit(max(1, min(limit, 50))).stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
 
@@ -328,8 +352,8 @@ async def get_stats() -> Dict[str, Any]:
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    repo_count = len(list(db.collection("discovered_repos").limit(1000).stream()))
-    post_count = len(list(db.collection("posts").limit(1000).stream()))
+    repo_count = len(list(db.collection("discovered_repos").stream()))
+    post_count = len(list(db.collection("posts").stream()))
     return {
         "total_repos": repo_count,
         "total_posts": post_count,

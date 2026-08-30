@@ -6,16 +6,17 @@ These are separate from publishing so the agent can review before posting.
 import json
 from typing import Dict, Any
 
-from google.adk.tools import tool
 from google import genai
 
 from ...config import Config
 
-client = genai.Client(api_key=Config.GEMINI_API_KEY)
 MODEL = Config.GEMINI_MODEL
 
 
-@tool
+def get_genai_client() -> genai.Client:
+    return genai.Client(api_key=Config.GEMINI_API_KEY)
+
+
 def generate_content_for_platform(analysis_json: str, platform: str) -> Dict[str, Any]:
     """
     Generate platform-specific content from repo analysis.
@@ -57,8 +58,8 @@ Requirements:
 Return ONLY the post text."""
 
     try:
-        response = client.models.generate_content(model=MODEL, contents=prompt)
-        text = response.text.strip()
+        response = get_genai_client().models.generate_content(model=MODEL, contents=prompt)
+        text = (response.text or "").strip()
         return {"success": True, "platform": "linkedin", "content": text}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -83,8 +84,8 @@ Requirements:
 Return ONLY the article markdown."""
 
     try:
-        response = client.models.generate_content(model=MODEL, contents=prompt)
-        text = response.text.strip()
+        response = get_genai_client().models.generate_content(model=MODEL, contents=prompt)
+        text = (response.text or "").strip()
         lines = text.split("\n")
         title = lines[0].replace("#", "").strip() if lines else "DevRel Post"
         body = "\n".join(lines[1:]).strip()

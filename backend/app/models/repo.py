@@ -2,11 +2,13 @@
 Repository data models with Pydantic validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.security import validate_github_url
 
 
 class RepoStatus(str, Enum):
@@ -27,12 +29,12 @@ class RepoDiscovery(BaseModel):
     topics: List[str] = Field(default_factory=list, max_length=20)
     readme_url: Optional[str] = Field(default=None, max_length=500)
     status: RepoStatus = Field(default=RepoStatus.PENDING_ANALYSIS)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("github_url")
     @classmethod
     def check_url(cls, v: str) -> str:
-        if not v.startswith("https://github.com/"):
+        if not validate_github_url(v):
             raise ValueError("Invalid GitHub URL")
         return v
 
@@ -46,7 +48,7 @@ class RepoAnalysis(BaseModel):
     target_audience: str = Field(..., max_length=200)
     one_liner_hook: str = Field(..., max_length=280)
     key_files: List[str] = Field(default_factory=list, max_length=10)
-    analyzed_at: datetime = Field(default_factory=datetime.utcnow)
+    analyzed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class RepoCuration(BaseModel):
@@ -57,4 +59,4 @@ class RepoCuration(BaseModel):
     verdict: str = Field(..., pattern=r"^(approve|reject)$")
     reason: str = Field(default="", max_length=500)
     matched_tags: List[str] = Field(default_factory=list, max_length=20)
-    curated_at: datetime = Field(default_factory=datetime.utcnow)
+    curated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

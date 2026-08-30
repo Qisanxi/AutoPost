@@ -4,7 +4,6 @@ NEVER hardcode secrets. All values come from .env or Render env vars.
 """
 
 import os
-from typing import Optional, List
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -20,7 +19,7 @@ class Config:
 
     # --- Gemini ---
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     # --- GitHub ---
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
