@@ -1,0 +1,157 @@
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+
+# Firebase service account keys
+credentials.json
+serviceAccountKey.json
+firebase-adminsdk-*.json
+*adminsdk*.json
+
+# API keys / tokens
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.yaml
+secrets.yml
+secrets.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PYTHON — BACKEND (/backend/)
+# ─────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+pythonenv*
+
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+.bandit
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NODE.JS — FRONTEND (/frontend/)
+# ─────────────────────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+.vite/
+
+.eslintcache
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIREBASE
+# ─────────────────────────────────────────────────────────────────────────────
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/hosting.*.cache
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RENDER
+# ─────────────────────────────────────────────────────────────────────────────
+render.yaml.bak
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IDE & EDITORS
+# ─────────────────────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OS GENERATED
+# ─────────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGS
+# ─────────────────────────────────────────────────────────────────────────────
+logs/
+*.log
+lerna-debug.log*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMPORARY FILES
+# ─────────────────────────────────────────────────────────────────────────────
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.diff
