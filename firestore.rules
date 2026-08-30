@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidRepoDoc() {
+      return request.resource.data.keys().hasAll(['github_url', 'status', 'created_at'])
+        && request.resource.data.github_url is string
+        && request.resource.data.github_url.matches('^https://github.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$')
+        && request.resource.data.status is string
+        && request.resource.data.status in ['pending_analysis', 'analyzed', 'approved', 'rejected', 'published', 'failed'];
+    }
+
+    function isValidPostDoc() {
+      return request.resource.data.keys().hasAll(['repo_id', 'platform', 'status'])
+        && request.resource.data.platform is string
+        && request.resource.data.platform in ['linkedin', 'devto', 'discord'];
+    }
+
+    // Discovered repos - read-only for dashboard, write only by backend
+    match /discovered_repos/{repoId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only backend service account writes
+    }
+
+    // Posts - read-only for dashboard, write only by backend
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Tag performance - read-only for dashboard
+    match /tag_performance/{tagId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Agent sessions - backend only
+    match /agent_sessions/{sessionId} {
+      allow read, write: if false;
+    }
+
+    // User profiles - users can only read/write their own
+    match /user_profiles/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Public stats (for unauthenticated dashboard views if needed)
+    match /public_stats/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
