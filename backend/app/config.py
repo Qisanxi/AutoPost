@@ -4,7 +4,6 @@ NEVER hardcode secrets. All values come from .env or Render env vars.
 """
 
 import os
-from typing import Optional, List
 from pathlib import Path
 
 from dotenv import load_dotenv

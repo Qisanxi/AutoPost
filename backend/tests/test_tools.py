@@ -39,8 +39,10 @@ class TestDiscoveryTools:
 
 
 class TestGenerationTools:
-    @patch("app.agents.tools.generation_tools.client")
-    def test_generate_linkedin(self, mock_client):
+    @patch("app.agents.tools.generation_tools.get_genai_client")
+    def test_generate_linkedin(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
         mock_response = MagicMock()
         mock_response.text = "This is a LinkedIn post about AI agents."
         mock_client.models.generate_content.return_value = mock_response
@@ -53,10 +55,12 @@ class TestGenerationTools:
         })
         result = generate_content_for_platform(analysis, "linkedin")
         assert result["success"] is True
-        assert "LinkedIn" in result["platform"]
+        assert result["platform"] == "linkedin"
 
-    @patch("app.agents.tools.generation_tools.client")
-    def test_generate_devto(self, mock_client):
+    @patch("app.agents.tools.generation_tools.get_genai_client")
+    def test_generate_devto(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
         mock_response = MagicMock()
         mock_response.text = "# Title\n\nThis is an article."
         mock_client.models.generate_content.return_value = mock_response
@@ -79,11 +83,11 @@ class TestGenerationTools:
 
 
 class TestMemoryTools:
-    @patch("app.agents.tools.memory_tools.db")
-    def test_save_repo(self, mock_db):
-        mock_doc = MagicMock()
-        mock_doc.id = "test-doc-123"
-        mock_db.collection.return_value.document.return_value = mock_doc
+    @patch("app.agents.tools.memory_tools.get_db_client")
+    def test_save_repo(self, mock_get_db_client):
+        mock_client = MagicMock()
+        mock_client.create_repo.return_value = "test-doc-123"
+        mock_get_db_client.return_value = mock_client
 
         repo_data = json.dumps({
             "github_url": "https://github.com/test/repo",

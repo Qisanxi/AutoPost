@@ -4,12 +4,10 @@ Prevents injection, enforces schema, handles errors gracefully.
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 
 from firebase_admin import firestore
 import structlog
 
-from ..exceptions import APIError
 from ..security import validate_github_url, validate_tags
 
 logger = structlog.get_logger(__name__)
@@ -33,15 +31,25 @@ class FirestoreClient:
             raise ValueError(f"Invalid github_url: {url}")
 
         # Sanitize
+        valid_sources = {"github_trending", "hacker_news", "reddit"}
+        source = repo_data.get("source", "github_trending")
+        if source not in valid_sources:
+            raise ValueError(f"Invalid source: {source}")
+
+        valid_statuses = {"pending_analysis", "analyzed", "approved", "rejected", "published", "failed"}
+        status = repo_data.get("status", "pending_analysis")
+        if status not in valid_statuses:
+            raise ValueError(f"Invalid status: {status}")
+
         clean_data = {
             "github_url": url,
-            "source": repo_data.get("source", "unknown"),
+            "source": source,
             "raw_name": str(repo_data.get("raw_name", ""))[:100],
             "raw_description": str(repo_data.get("raw_description", ""))[:500],
             "stars": max(0, int(repo_data.get("stars", 0))),
             "topics": repo_data.get("topics", [])[:20],
             "readme_url": str(repo_data.get("readme_url", ""))[:500],
-            "status": repo_data.get("status", "pending_analysis"),
+            "status": status,
             "created_at": firestore.SERVER_TIMESTAMP,
         }
 
@@ -73,7 +81,7 @@ class FirestoreClient:
         )
         return [{"id": d.id, **d.to_dict()} for d in docs]
 
-    def update_repo_status(self, repo_id: str, status: str, extra_fields: Dict[str, Any] = None):
+    def update_repo_status(self, repo_id: str, status: str, extra_fields: Optional[Dict[str, Any]] = None) -> None:
         """Update repo status and optional extra fields."""
         valid_statuses = {"pending_analysis", "analyzed", "approved", "rejected", "published", "failed"}
         if status not in valid_statuses:
@@ -112,10 +120,15 @@ class FirestoreClient:
         if platform not in {"linkedin", "devto", "discord"}:
             raise ValueError(f"Invalid platform: {platform}")
 
+        valid_statuses = {"queued", "publishing", "verifying", "completed", "failed"}
+        post_status = post_data.get("status", "queued")
+        if post_status not in valid_statuses:
+            raise ValueError(f"Invalid post status: {post_status}")
+
         clean_data = {
             "repo_id": str(post_data.get("repo_id", ""))[:100],
             "platform": platform,
-            "status": post_data.get("status", "queued"),
+            "status": post_status,
             "content": {
                 "headline": str(post_data.get("content", {}).get("headline", ""))[:300],
                 "body": str(post_data.get("content", {}).get("body", ""))[:50000],
@@ -240,7 +253,3 @@ class FirestoreClient:
         allowed = {"status", "current_step", "tool_call_history", "repos_in_pipeline", "errors", "completed_at"}
         clean_updates = {k: v for k, v in updates.items() if k in allowed}
         self.db.collection("agent_sessions").document(session_id).update(clean_updates)
-
-
-# Singleton instance
-db_client = FirestoreClient()

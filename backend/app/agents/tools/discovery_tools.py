@@ -2,16 +2,12 @@
 Google ADK Discovery Tools — fetch repos from GitHub, HN, Reddit.
 """
 
-from typing import List, Dict, Any
-
-from google.adk.tools import tool
+from typing import List, Dict, Any, Union
 
 from ...services.github_client import GitHubClient
 from ...security import validate_github_url
-from ...exceptions import APIError
 
 
-@tool
 def search_github_trending(language: str = "typescript", limit: int = 5) -> List[Dict[str, Any]]:
     """
     Search GitHub for trending repositories created in the last 7 days.
@@ -28,7 +24,6 @@ def search_github_trending(language: str = "typescript", limit: int = 5) -> List
     )
 
 
-@tool
 def fetch_repo_readme(repo_url: str) -> str:
     """
     Fetch the raw README.md content from a GitHub repository.
@@ -40,7 +35,6 @@ def fetch_repo_readme(repo_url: str) -> str:
     return client.fetch_readme(repo_url)
 
 
-@tool
 def fetch_hacker_news_show_hn(limit: int = 5) -> List[Dict[str, Any]]:
     """
     Fetch recent 'Show HN' posts from Hacker News.
@@ -48,10 +42,11 @@ def fetch_hacker_news_show_hn(limit: int = 5) -> List[Dict[str, Any]]:
     """
     import requests
     url = "https://hn.algolia.com/api/v1/search_by_date"
-    params = {
+    safe_limit = max(1, min(limit, 20))
+    params: Dict[str, Union[str, int]] = {
         "query": "Show HN",
         "tags": "story",
-        "hitsPerPage": min(limit, 20)
+        "hitsPerPage": safe_limit,
     }
     try:
         response = requests.get(url, params=params, timeout=10)

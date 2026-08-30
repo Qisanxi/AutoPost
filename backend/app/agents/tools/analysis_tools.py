@@ -5,17 +5,17 @@ Google ADK Analysis Tools — Gemini-powered repo analysis and curation.
 import json
 from typing import Dict, Any
 
-from google.adk.tools import tool
 from google import genai
 
 from ...config import Config
-from ...exceptions import APIError
 
-client = genai.Client(api_key=Config.GEMINI_API_KEY)
 MODEL = Config.GEMINI_MODEL
 
 
-@tool
+def get_genai_client() -> genai.Client:
+    return genai.Client(api_key=Config.GEMINI_API_KEY)
+
+
 def analyze_repository(readme_content: str, repo_metadata: str) -> Dict[str, Any]:
     """
     Use Gemini to deeply analyze a repository's README and metadata.
@@ -43,8 +43,8 @@ Return JSON:
 }}
 """
     try:
-        response = client.models.generate_content(model=MODEL, contents=prompt)
-        text = response.text.strip()
+        response = get_genai_client().models.generate_content(model=MODEL, contents=prompt)
+        text = (response.text or "").strip()
         # Remove markdown fences if present
         if text.startswith("```json"):
             text = text[7:]
@@ -57,7 +57,6 @@ Return JSON:
         return {"error": str(e), "novelty_score": 5.0}
 
 
-@tool
 def generate_linkedin_post(analysis_json: str) -> str:
     """
     Generate a professional LinkedIn post from repo analysis.
@@ -78,13 +77,12 @@ Requirements:
 
 Return ONLY the post text."""
     try:
-        response = client.models.generate_content(model=MODEL, contents=prompt)
-        return response.text.strip()
+        response = get_genai_client().models.generate_content(model=MODEL, contents=prompt)
+        return (response.text or "").strip()
     except Exception as e:
         return f"Error generating post: {e}"
 
 
-@tool
 def generate_devto_article(analysis_json: str) -> str:
     """
     Generate a technical Dev.to article from repo analysis.
@@ -107,7 +105,7 @@ Requirements:
 
 Return ONLY the article markdown."""
     try:
-        response = client.models.generate_content(model=MODEL, contents=prompt)
-        return response.text.strip()
+        response = get_genai_client().models.generate_content(model=MODEL, contents=prompt)
+        return (response.text or "").strip()
     except Exception as e:
         return f"Error generating article: {e}"

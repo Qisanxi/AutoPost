@@ -2,6 +2,7 @@
 Secure GitHub API client.
 """
 
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 
@@ -25,15 +26,16 @@ class GitHubClient:
         self.token = token or Config.GITHUB_TOKEN
         self.session = requests.Session()
         self.session.headers.update({
-            "Authorization": f"token {self.token}",
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "DevRel-Agent/1.0"
+            "User-Agent": "DevRel-Agent/1.0",
         })
-        self.session.timeout = REQUEST_TIMEOUT
+        if self.token:
+            self.session.headers.update({"Authorization": f"Bearer {self.token}"})
 
     def _request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         url = f"{self.BASE_URL}{endpoint}"
         try:
+            kwargs.setdefault("timeout", REQUEST_TIMEOUT)
             response = self.session.request(method, url, **kwargs)
             if response.status_code == 403 and "rate limit" in response.text.lower():
                 raise RateLimitError("GitHub")
@@ -47,18 +49,22 @@ class GitHubClient:
 
     def search_trending(
         self,
-        languages: List[str] = None,
-        created_after: str = "2026-08-01",
+        languages: Optional[List[str]] = None,
+        created_after: Optional[str] = None,
         min_stars: int = 50,
         per_page: int = 10
     ) -> List[Dict[str, Any]]:
         if languages is None:
             languages = ["typescript", "python", "rust"]
+        if created_after is None:
+            created_after = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
         if not (1 <= per_page <= 30):
             per_page = 10
 
-        lang_query = " language:".join([""] + languages).strip()
-        query = f"created:>{created_after}{lang_query} stars:>{min_stars}"
+        language_filter = " OR ".join(f"language:{language}" for language in languages)
+        query = f"created:>{created_after} stars:>{min_stars}"
+        if language_filter:
+            query = f"{query} ({language_filter})"
 
         logger.info("github_search", languages=languages, min_stars=min_stars)
         response = self._request(

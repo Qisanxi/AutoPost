@@ -3,7 +3,6 @@ LinkedIn Personal Profile API Client (w_member_social scope).
 Posts directly to your personal profile — no company page needed.
 """
 
-import json
 from typing import Dict, Any
 
 import requests
@@ -30,7 +29,6 @@ class LinkedInClient:
             "Linkedin-Version": LINKEDIN_API_VERSION,
             "Content-Type": "application/json",
         })
-        self.session.timeout = REQUEST_TIMEOUT
 
     def publish_post(self, text: str) -> Dict[str, Any]:
         """Publish a text post to your personal LinkedIn profile."""
@@ -51,7 +49,7 @@ class LinkedInClient:
         }
 
         try:
-            response = self.session.post(url, json=payload)
+            response = self.session.post(url, json=payload, timeout=REQUEST_TIMEOUT)
             if response.status_code == 201:
                 post_urn = response.headers.get("x-restli-id", "")
                 post_url = f"https://www.linkedin.com/feed/update/{post_urn}"
@@ -68,7 +66,7 @@ class LinkedInClient:
         """Get your profile info (useful for finding your person URN)."""
         url = f"{self.BASE_URL}/v2/me"
         try:
-            response = self.session.get(url)
+            response = self.session.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
