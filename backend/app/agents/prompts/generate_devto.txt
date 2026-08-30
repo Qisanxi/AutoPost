@@ -1,0 +1,22 @@
+Write a technical Dev.to article about this repository.
+
+REPOSITORY ANALYSIS:
+- Problem Solved: {problem_solved}
+- Tech Stack: {tech_stack}
+- Domain Tags: {domain_tags}
+- Complexity: {complexity}
+- Target Audience: {target_audience}
+- Key Files: {key_files}
+
+Requirements:
+- Title: Clear, specific, and SEO-friendly (max 100 chars)
+- Introduction: What problem does this solve and why should I care?
+- Overview: How does it work at a high level?
+- Technical Deep Dive: One interesting implementation detail or architecture choice
+- Use Case: A concrete scenario where this would be valuable
+- Code Example: If relevant, include a small code snippet (use markdown code blocks)
+- Conclusion: Summary + link to repo + call to action (star the repo, try it out)
+- Tags for Dev.to: {domain_tags} (max 4)
+- Tone: Technical but accessible. Assume reader is a competent developer.
+- Total length: 800-1500 words
+- Use proper markdown formatting

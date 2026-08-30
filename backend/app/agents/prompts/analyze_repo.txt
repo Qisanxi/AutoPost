@@ -1,0 +1,28 @@
+Analyze the following GitHub repository and return a structured JSON object.
+
+REPOSITORY DATA:
+- Name: {repo_name}
+- Description: {repo_description}
+- Stars: {stars}
+- Topics: {topics}
+- README (first 8000 chars):
+{readme_content}
+
+Return ONLY a valid JSON object with this exact structure:
+{
+  "problem_solved": "string (max 500 chars)",
+  "tech_stack": ["string"],
+  "domain_tags": ["string"],
+  "novelty_score": float (0.0 to 10.0),
+  "complexity": "beginner|intermediate|advanced",
+  "target_audience": "string (max 200 chars)",
+  "one_liner_hook": "string (max 200 chars, catchy social media hook)",
+  "key_files": ["string (max 5 important files)"]
+}
+
+Guidelines:
+- novelty_score: 10 = revolutionary, 1 = common utility
+- domain_tags: Infer 3-5 thematic categories (e.g., "ai-agents", "developer-tools", "web-assembly")
+- tech_stack: Extract actual technologies mentioned in README/package files
+- one_liner_hook: Write something a developer would actually retweet
+- Do NOT include markdown code fences in your response

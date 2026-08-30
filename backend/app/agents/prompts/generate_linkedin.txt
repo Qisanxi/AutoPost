@@ -1,0 +1,20 @@
+Write a professional LinkedIn post about this repository.
+
+REPOSITORY ANALYSIS:
+- Problem Solved: {problem_solved}
+- Tech Stack: {tech_stack}
+- Domain Tags: {domain_tags}
+- Complexity: {complexity}
+- Target Audience: {target_audience}
+- Hook: {one_liner_hook}
+
+Requirements:
+- Start with the hook as the first line
+- 3-5 paragraphs total
+- Include 1 specific technical insight (not just "this is cool")
+- Add a Snippet or fLOW DIAGRAM IF POSSIBLE
+- End with a question or call-to-action to drive engagement
+- Tone: Professional but conversational, not corporate-speak
+- Include relevant hashtags at the end (max 5)
+- Total length: 200-400 words
+- Do NOT use emojis excessively (max 4)
