@@ -5,7 +5,10 @@ Wires all tools into a reasoning loop. This is the "brain" of the system.
 
 from google.adk.agents import Agent
 from google.adk.runners import Runner
-from google.adk.sessions import Session
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
+import asyncio
+import uuid
 
 from .tools.discovery_tools import search_github_trending, fetch_repo_readme, fetch_hacker_news_show_hn
 from .tools.analysis_tools import analyze_repository, generate_linkedin_post, generate_devto_article
@@ -47,7 +50,7 @@ RULES:
 # ─────────────────────────────────────────────────────────────────────────────
 
 devrel_agent = Agent(
-    model="gemini-3.5-flash",
+    model="gemini-2.5-flash",
     name="devrel_content_agent",
     description="Autonomous agent that discovers, analyzes, and publishes dev content",
     instruction=SYSTEM_INSTRUCTION,
@@ -78,18 +81,39 @@ devrel_agent = Agent(
 # RUNNER — Execute the agent
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_agent_session(query: str = "Run the daily content discovery and publishing workflow.") -> dict:
+async def run_agent_session_async(query: str = "Run the daily content discovery and publishing workflow.") -> dict:
     """
     Execute one agent session.
-    Returns the final response and tool call history.
+    Returns the final response text and event history.
     """
-    session = Session()
-    runner = Runner(agent=devrel_agent, session=session)
-
-    response = runner.run(query=query)
+    app_name = "devrel-agent"
+    user_id = "agent-runner"
+    session_id = str(uuid.uuid4())
+    session_service = InMemorySessionService()
+    session = await session_service.create_session(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    runner = Runner(
+        agent=devrel_agent,
+        app_name=app_name,
+        session_service=session_service,
+    )
+    message = types.Content(role="user", parts=[types.Part(text=query)])
+    events = list(runner.run(user_id=user_id, session_id=session.id, new_message=message))
+    final_response = ""
+    for event in events:
+        if getattr(event, "content", None) and event.content and event.content.parts:
+            final_response = "".join(part.text or "" for part in event.content.parts) or final_response
 
     return {
-        "final_response": response,
+        "final_response": final_response,
         "session_id": session.id,
-        "tool_calls": session.tool_calls if hasattr(session, "tool_calls") else [],
+        "events": [event.model_dump(mode="json") for event in events],
     }
+
+
+def run_agent_session(query: str = "Run the daily content discovery and publishing workflow.") -> dict:
+    """Synchronously execute one agent session."""
+    return asyncio.run(run_agent_session_async(query))

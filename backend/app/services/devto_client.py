@@ -8,7 +8,7 @@ import requests
 import structlog
 
 from ..config import Config
-from ..exceptions import APIError, PublishingError
+from ..exceptions import PublishingError
 
 logger = structlog.get_logger(__name__)
 BASE_URL = "https://dev.to/api"
@@ -24,7 +24,6 @@ class DevToClient:
             "Content-Type": "application/json",
             "Accept": "application/vnd.forem.api-v1+json",
         })
-        self.session.timeout = REQUEST_TIMEOUT
 
     def publish_article(self, title: str, body: str, tags: list) -> Dict[str, Any]:
         """Publish an article to Dev.to."""
@@ -38,7 +37,7 @@ class DevToClient:
             }
         }
         try:
-            response = self.session.post(url, json=payload)
+            response = self.session.post(url, json=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
             logger.info("devto_article_published", article_id=data.get("id"))

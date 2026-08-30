@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 MAX_URL_LENGTH = 500
 MAX_TEXT_LENGTH = 50000
-GITHUB_URL_RE = re.compile(r"^https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/?$")
+GITHUB_URL_RE = re.compile(r"^https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:\.git)?/?$")
 TAG_RE = re.compile(r"^[a-zA-Z0-9_-]{1,50}$")
 
 
@@ -35,7 +35,11 @@ def validate_discord_webhook_url(url: str) -> bool:
         return False
     try:
         parsed = urlparse(url)
-        return parsed.scheme == "https" and parsed.hostname in ("discord.com", "discordapp.com")
+        return (
+            parsed.scheme == "https"
+            and parsed.hostname in ("discord.com", "discordapp.com")
+            and parsed.path.startswith("/api/webhooks/")
+        )
     except Exception:
         return False
 
@@ -70,6 +74,6 @@ def log_safe_error(operation: str, error: Exception, extra: Optional[dict] = Non
         "operation_failed",
         operation=operation,
         error_type=type(error).__name__,
-        error_message=str(error)[:200],
+        error_message=sanitize_text(str(error), 200),
         **safe_extra
     )

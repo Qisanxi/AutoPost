@@ -21,20 +21,19 @@ class DiscordClient:
         if not validate_discord_webhook_url(self.webhook_url):
             raise ValueError("Invalid Discord webhook URL")
         self.session = requests.Session()
-        self.session.timeout = REQUEST_TIMEOUT
 
     def send_notification(self, message: str) -> Dict[str, Any]:
         """Send a simple text notification to Discord."""
         payload = {"content": message[:2000]}  # Discord limit
         try:
-            response = self.session.post(self.webhook_url, json=payload)
+            response = self.session.post(self.webhook_url, json=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             logger.info("discord_notification_sent")
             return {"success": True}
         except requests.exceptions.RequestException as e:
             raise APIError("Discord", str(e)[:100])
 
-    def send_embed(self, title: str, description: str, fields: list = None, url: str = "") -> Dict[str, Any]:
+    def send_embed(self, title: str, description: str, fields: list | None = None, url: str = "") -> Dict[str, Any]:
         """Send a rich embed notification."""
         embed = {
             "title": title[:256],
@@ -49,7 +48,7 @@ class DiscordClient:
 
         payload = {"embeds": [embed]}
         try:
-            response = self.session.post(self.webhook_url, json=payload)
+            response = self.session.post(self.webhook_url, json=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             return {"success": True}
         except requests.exceptions.RequestException as e:

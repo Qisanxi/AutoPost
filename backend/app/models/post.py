@@ -2,7 +2,7 @@
 Post content models.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from enum import Enum
 
@@ -50,4 +50,4 @@ class PostRecord(BaseModel):
     engagement: dict = Field(default_factory=dict)
     retry_count: int = Field(default=0, ge=0, le=5)
     error_log: List[str] = Field(default_factory=list, max_length=5)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
