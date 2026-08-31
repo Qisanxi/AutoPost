@@ -51,22 +51,25 @@ class GitHubClient:
         self,
         languages: Optional[List[str]] = None,
         created_after: Optional[str] = None,
-        min_stars: int = 50,
+        pushed_after: Optional[str] = None,
+        min_stars: int = 10,
         per_page: int = 10
     ) -> List[Dict[str, Any]]:
         if languages is None:
             languages = ["typescript", "python", "rust"]
-        if created_after is None:
-            created_after = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
+        search_pushed_after = pushed_after or created_after or (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat()
+        if min_stars < 1:
+            min_stars = 10
         if not (1 <= per_page <= 30):
             per_page = 10
 
         language_filter = " OR ".join(f"language:{language}" for language in languages)
-        query = f"created:>{created_after} stars:>{min_stars}"
+        query_parts = [f"pushed:>{search_pushed_after}", f"stars:>{min_stars}"]
         if language_filter:
-            query = f"{query} ({language_filter})"
+            query_parts.append(f"({language_filter})")
+        query = " ".join(query_parts)
 
-        logger.info("github_search", languages=languages, min_stars=min_stars)
+        logger.info("github_search", languages=languages, min_stars=min_stars, pushed_after=search_pushed_after)
         response = self._request(
             "GET", "/search/repositories",
             params={"q": query, "sort": "stars", "order": "desc", "per_page": per_page}

@@ -92,14 +92,19 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
         client = GitHubClient()
         lang_list = [l.strip() for l in languages.split(",") if l.strip()]
         safe_limit = max(1, min(limit, 30))
-        repos = client.search_trending(languages=lang_list, per_page=safe_limit)
-
+        github_found = client.search_trending(languages=lang_list, per_page=safe_limit)
+        duplicates_skipped = 0
         saved = []
-        for repo in repos:
-            if FirestoreClient().check_duplicate(repo["url"]):
+
+        for repo in github_found:
+            repo_url = repo.get("url") or ""
+            if not repo_url:
+                continue
+            if FirestoreClient().check_duplicate(repo_url):
+                duplicates_skipped += 1
                 continue
             doc_data = {
-                "github_url": repo["url"],
+                "github_url": repo_url,
                 "source": "github_trending",
                 "raw_name": repo["name"],
                 "raw_description": repo.get("description", ""),
@@ -110,9 +115,15 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
                 "created_at": firestore.SERVER_TIMESTAMP,
             }
             doc_id = FirestoreClient().create_repo(doc_data)
-            saved.append({"id": doc_id, "name": repo["name"], "url": repo["url"]})
+            saved.append({"id": doc_id, "name": repo["name"], "url": repo_url})
 
-        return {"status": "success", "count": len(saved), "repos": saved}
+        return {
+            "status": "success",
+            "count": len(saved),
+            "github_found": len(github_found),
+            "duplicates_skipped": duplicates_skipped,
+            "repos": saved,
+        }
     except HTTPException:
         raise
     except Exception as e:

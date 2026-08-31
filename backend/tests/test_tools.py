@@ -3,9 +3,11 @@ ADK tool tests.
 """
 
 import json
-import pytest
 from unittest.mock import patch, MagicMock
 
+from fastapi.testclient import TestClient
+
+from app import main as main_module
 from app.agents.tools.discovery_tools import search_github_trending, fetch_repo_readme
 from app.agents.tools.generation_tools import generate_content_for_platform
 from app.agents.tools.memory_tools import save_repo_to_firestore
@@ -23,6 +25,35 @@ class TestDiscoveryTools:
         result = search_github_trending(language="python", limit=1)
         assert len(result) == 1
         assert result[0]["name"] == "repo"
+
+    @patch("app.main.GitHubClient")
+    @patch("app.main.FirestoreClient")
+    def test_discover_repos_includes_metrics(self, mock_firestore_client, mock_github_client):
+        mock_github = MagicMock()
+        mock_github.search_trending.return_value = [
+            {"url": "https://github.com/test/repo-1", "name": "repo1", "stars": 11, "topics": ["python"], "description": "Alpha", "readme_url": "https://raw.githubusercontent.com/test/repo-1/main/README.md"},
+            {"url": "https://github.com/test/repo-2", "name": "repo2", "stars": 9, "topics": ["python"], "description": "Beta", "readme_url": "https://raw.githubusercontent.com/test/repo-2/main/README.md"},
+        ]
+        mock_github_client.return_value = mock_github
+
+        firestore_instance = MagicMock()
+        firestore_instance.check_duplicate.side_effect = [False, True]
+        firestore_instance.create_repo.return_value = "doc-1"
+        mock_firestore_client.return_value = firestore_instance
+
+        original_db = main_module.db
+        main_module.db = MagicMock()
+        try:
+            client = TestClient(main_module.app)
+            response = client.post("/agent/discover", params={"languages": "python", "limit": 5})
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["github_found"] == 2
+            assert payload["duplicates_skipped"] == 1
+            assert payload["count"] == 1
+            assert payload["repos"][0]["name"] == "repo1"
+        finally:
+            main_module.db = original_db
 
     @patch("app.agents.tools.discovery_tools.GitHubClient")
     def test_fetch_repo_readme(self, mock_client):
