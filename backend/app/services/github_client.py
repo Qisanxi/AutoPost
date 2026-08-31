@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 
+import base64
+
 import requests
 import structlog
 
@@ -86,27 +88,39 @@ class GitHubClient:
                 "description": (item.get("description") or "")[:500],
                 "stars": item.get("stargazers_count", 0),
                 "topics": item.get("topics", [])[:20],
-                "readme_url": f"https://raw.githubusercontent.com/{full_name}/main/README.md",
                 "language": item.get("language", ""),
             })
         return results
 
     def fetch_readme(self, repo_url: str) -> str:
+        """Fetch README via GitHub Contents API.
+
+        Uses GET /repos/{owner}/{repo}/readme which auto-detects:
+        - the default branch (any name, not just main/master)
+        - the README filename (README.md, readme.md, README.rst, etc.)
+        Returns Base64-decoded content up to MAX_README_LENGTH.
+        """
         if not validate_github_url(repo_url):
             raise ValidationError("repo_url", "Invalid GitHub URL")
         parsed = urlparse(repo_url)
         path_parts = parsed.path.strip("/").split("/")
-        if len(path_parts) < 2:
+        repo_name = path_parts[1].replace(".git", "") if len(path_parts) >= 2 else ""
+        if len(path_parts) < 2 or not repo_name:
             raise ValidationError("repo_url", "Cannot parse owner/repo")
-        owner, repo = path_parts[0], path_parts[1]
+        owner, repo = path_parts[0], repo_name
 
-        for branch in ["main", "master"]:
-            raw_url = f"{self.RAW_URL}/{owner}/{repo}/{branch}/README.md"
-            try:
-                response = self.session.get(raw_url, timeout=REQUEST_TIMEOUT)
-                if response.status_code == 200:
-                    return response.text[:MAX_README_LENGTH]
-            except requests.exceptions.RequestException:
-                continue
-        logger.warning("github_readme_not_found", repo_url=repo_url)
-        return ""
+        try:
+            response = self._request("GET", f"/repos/{owner}/{repo}/readme")
+            data = response.json()
+            content_b64 = data.get("content", "")
+            if not content_b64:
+                logger.warning("github_readme_empty", repo_url=repo_url)
+                return ""
+            readme_text = base64.b64decode(content_b64.replace("\n", "")).decode("utf-8", errors="replace")
+            logger.info("github_readme_fetched", repo_url=repo_url, length=len(readme_text))
+            return readme_text[:MAX_README_LENGTH]
+        except RateLimitError:
+            raise
+        except (APIError, ValidationError) as e:
+            logger.warning("github_readme_fetch_failed", repo_url=repo_url, error=str(e))
+            return ""

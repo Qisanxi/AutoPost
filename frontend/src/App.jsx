@@ -1,121 +1,407 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-const TRIAL_KEY = 'autopost-agent-trial-used'
+/* ─── utilities ─── */
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a
+const pick = a => a[rnd(0, a.length - 1)]
+const now = () => {
+  const d = new Date()
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map(n => String(n).padStart(2, '0')).join(':')
+}
 
-const agentCapabilities = [
-  { icon: '🔎', title: 'Repo discovery agent', description: 'Finds fast-growing TypeScript and Python repositories before they become crowded topics.', metric: '5 repos / run' },
-  { icon: '🧠', title: 'Analysis agent', description: 'Scores novelty, extracts the strongest hook, and turns repository metadata into creator-ready insight.', metric: '10-point score' },
-  { icon: '✍️', title: 'Content agent', description: 'Drafts platform-aware snippets for LinkedIn and Dev.to so teams can publish with less manual rewriting.', metric: '2 channels' },
-  { icon: '📈', title: 'Performance agent', description: 'Keeps a dashboard of discovered repositories, post history, and publishing outcomes in one view.', metric: 'Live stats' },
+/* ─── data ─── */
+const PLATFORMS = ['X', 'LinkedIn', 'Instagram', 'Threads', 'Reddit', 'Bluesky']
+const ANGLES = ['contrarian take', 'teardown', 'under-the-hood', 'failure story', 'field report', 'hot take']
+const SCHED_TIMES = ['tomorrow 09:30', 'Thu 12:00', 'Fri 18:15', 'tonight 21:00']
+
+const EVENTS = [
+  () => ['scout', `analyzed ${rnd(120, 900)} trending topics across ${pick(PLATFORMS)}`],
+  () => ['draft', `post #${rnd(4000, 9999)} written · ${rnd(38, 120)} words · voice match ${rnd(91, 99)}%`],
+  () => ['review', `\u201c${pick(ANGLES)}\u201d scored ${rnd(7, 9)}.${rnd(0, 9)}/10 · approved`],
+  () => ['queue', `thread scheduled ${pick(SCHED_TIMES)}`],
+  () => ['pub', `shipped to ${pick(PLATFORMS)} · live now`],
+  () => ['learn', `+${rnd(4, 31)}% replies on post #${rnd(4000, 9999)} · strategy updated`],
+  () => ['scout', `monitor · ${rnd(3, 12)} competitor feeds quiet · window open`],
 ]
 
-const workflowSteps = [
-  { label: 'Discover', detail: 'Scan GitHub trends', icon: '🌐' },
-  { label: 'Analyze', detail: 'Score novelty + hook', icon: '🧪' },
-  { label: 'Generate', detail: 'Create snippets', icon: '📝' },
-  { label: 'Publish', detail: 'LinkedIn + Dev.to', icon: '🚀' },
-  { label: 'Learn', detail: 'Track results', icon: '📊' },
+const TICKER_ITEMS = [
+  'PUB 09:31 · @nova_builds — \u201cWe rebuilt our onboarding in 6 hours. Here\u2019s the teardown.\u201d · +18% replies',
+  'PUB 09:12 · @stack_daily — \u201cThe one-line deploy that saved our Friday.\u201d · +9% saves',
+  'PUB 08:58 · @lumen_labs — \u201cNobody talks about the boring part of agents.\u201d · +41% clicks',
+  'PUB 08:40 · @quiet_eng — \u201cOur incident review found 3 surprises. One was us.\u201d · +22% shares',
+  'PUB 08:17 · @field_notes — \u201c30 days of shipping daily: the honest numbers.\u201d · +31% follows',
+  'PUB 07:52 · @orbit_dev — \u201cWe deleted half our roadmap. Retention went up.\u201d · +14% bookmarks',
 ]
 
-const snippetExamples = [
-  { platform: 'LinkedIn', code: `Just found a promising open-source repo gaining traction.\n\nWhy it matters:\n• Clear developer pain point\n• Strong adoption signal\n• Practical automation workflow\n\nWorth watching this week.` },
-  { platform: 'Dev.to', code: `## Project spotlight\n\nThis repo stands out because it combines strong DX, useful docs, and a focused use case.\n\n**Agent score:** 8/10\n**Best angle:** ship faster with reusable automation.` },
+const DRAFTS = [
+  t => `We spent three weeks stress-testing ${t}.\n\nThe result surprised us:\n\n\u2014 the obvious approach lost 40% of the time\n\u2014 one small change flipped the outcome entirely\n\u2014 the data behind it is messier than anyone admits\n\nFull teardown below. Ask me anything.`,
+  t => `Nobody talks about the boring part of ${t}.\n\nDemos get the clicks. Plumbing wins the users.\n\nThree things that actually moved the needle for us \u2014 and the one mistake that cost us a month.`,
+  t => `Field report: ${t}, day 30.\n\nWhat we believed at the start: wrong.\nWhat actually happened: better \u2014 but not for the reason we expected.\n\nThe numbers, the mistakes, and the version we\u2019d ship again. Thread:`,
 ]
 
-function App() {
-  const [repos, setRepos] = useState([])
-  const [posts, setPosts] = useState([])
-  const [stats, setStats] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
-  const [trialUsed, setTrialUsed] = useState(() => localStorage.getItem(TRIAL_KEY) === 'true')
-  const [showLogin, setShowLogin] = useState(false)
-  const [loginForm, setLoginForm] = useState({ name: '', email: '', role: '' })
+const CHIP_LIST = ['X', 'LinkedIn', 'Instagram', 'Threads']
 
-  const isLocked = trialUsed && !showLogin
+/* ─── hooks ─── */
+function useClock() {
+  const [time, setTime] = useState(now())
+  useEffect(() => { const id = setInterval(() => setTime(now()), 1000); return () => clearInterval(id) }, [])
+  return time
+}
 
-  const safeFetchJson = useCallback(async (url, options) => {
-    const res = await fetch(url, options)
-    if (!res.ok) throw new Error(`Request failed with ${res.status}`)
-    return res.json()
-  }, [])
-  const fetchRepos = useCallback(async () => setRepos(await safeFetchJson(`${API_BASE}/agent/repos?limit=10`)), [safeFetchJson])
-  const fetchPosts = useCallback(async () => setPosts(await safeFetchJson(`${API_BASE}/agent/posts?limit=10`)), [safeFetchJson])
-  const fetchStats = useCallback(async () => setStats(await safeFetchJson(`${API_BASE}/agent/stats`)), [safeFetchJson])
-
-  const refreshDashboard = useCallback(async () => {
-    try { await Promise.all([fetchRepos(), fetchPosts(), fetchStats()]) }
-    catch (err) { setMessage(`Connect the API to load live data: ${err.message}`) }
-  }, [fetchPosts, fetchRepos, fetchStats])
-
-  const discoverRepos = async (fromTrial = false) => {
-    setLoading(true); setMessage('')
-    try {
-      const data = await safeFetchJson(`${API_BASE}/agent/discover?languages=typescript,python&limit=5`, { method: 'POST' })
-      setMessage(`Discovered ${data.count} repos! Your sample agent run is complete.`)
-      if (fromTrial) { localStorage.setItem(TRIAL_KEY, 'true'); setTrialUsed(true); setShowLogin(true) }
-      await Promise.all([fetchRepos(), fetchStats()])
-    } catch (err) { setMessage(`Error: ${err.message}`) }
-    finally { setLoading(false) }
-  }
-
-  const startTrial = async () => trialUsed ? setShowLogin(true) : discoverRepos(true)
-  const guardAction = (action) => (...args) => isLocked ? setShowLogin(true) : action(...args)
-
-  const analyzeRepo = async (repoId) => {
-    setLoading(true)
-    try {
-      const data = await safeFetchJson(`${API_BASE}/agent/analyze/${repoId}`, { method: 'POST' })
-      setMessage(`Analyzed: ${data.analysis?.one_liner_hook || 'Done'}`); fetchRepos()
-    } catch (err) { setMessage(`Error: ${err.message}`) }
-    finally { setLoading(false) }
-  }
-
-  const publishPost = async (platform, repoId) => {
-    setLoading(true)
-    try {
-      const data = await safeFetchJson(`${API_BASE}/agent/publish/${platform}/${repoId}`, { method: 'POST' })
-      setMessage(`${platform === 'linkedin' ? 'LinkedIn' : 'Dev.to'}: ${data.result?.post_url || 'Published!'}`)
-      await Promise.all([fetchPosts(), fetchStats()])
-    } catch (err) { setMessage(`Error: ${err.message}`) }
-    finally { setLoading(false) }
-  }
-
-  const handleLoginSubmit = (event) => {
-    event.preventDefault()
-    setMessage(`Thanks ${loginForm.name || 'there'} — your workspace request is ready for backend authentication.`)
-    setShowLogin(false)
-  }
-
-  const dashboardStats = useMemo(() => [
-    { label: 'Repos discovered', value: stats?.total_repos ?? repos.length, tone: 'blue' },
-    { label: 'Posts published', value: stats?.total_posts ?? posts.length, tone: 'green' },
-    { label: 'Active agents', value: agentCapabilities.length, tone: 'purple' },
-  ], [posts.length, repos.length, stats])
-
+function useReveal() {
+  const ref = useRef(null)
   useEffect(() => {
-    const timer = window.setTimeout(refreshDashboard, 0)
-    return () => window.clearTimeout(timer)
-  }, [refreshDashboard])
+    const el = ref.current
+    if (!el) return
+    const targets = el.querySelectorAll('.reveal')
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); obs.unobserve(e.target) } }),
+      { threshold: 0.12 }
+    )
+    targets.forEach(t => obs.observe(t))
+    return () => obs.disconnect()
+  }, [])
+  return ref
+}
 
+function useCountUp() {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const counters = el.querySelectorAll('.count')
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => {
+        if (!e.isIntersecting) return
+        const target = e.target
+        obs.unobserve(target)
+        const end = parseFloat(target.dataset.count)
+        const dec = +(target.dataset.dec || 0)
+        const dur = 1400
+        const t0 = performance.now()
+        function step(t) {
+          const p = Math.min((t - t0) / dur, 1)
+          const ease = 1 - Math.pow(1 - p, 3)
+          target.textContent = dec ? (end * ease).toFixed(dec) : Math.round(end * ease).toLocaleString('en-US')
+          if (p < 1) requestAnimationFrame(step)
+        }
+        requestAnimationFrame(step)
+      }),
+      { threshold: 0.6 }
+    )
+    counters.forEach(c => obs.observe(c))
+    return () => obs.disconnect()
+  }, [])
+  return ref
+}
+
+/* ─── Toast component ─── */
+function ToastItem({ msg, err }) {
+  const ref = useRef(null)
+  useEffect(() => { requestAnimationFrame(() => { if (ref.current) ref.current.classList.add('show') }) }, [])
+  return <div ref={ref} className={`toast${err ? ' err' : ''}`}>{msg}</div>
+}
+
+/* ─── Ticker ─── */
+function Ticker() {
+  const half = TICKER_ITEMS.map((t, i) => (
+    <Fragment key={i}><span className="ti">{t}</span><span className="sep">/</span></Fragment>
+  ))
   return (
-    <main className="app-shell">
-      <nav className="topbar"><div className="brand"><span>🚀</span> AutoPost Agents</div><button className="ghost-button" onClick={() => setShowLogin(true)}>Login</button></nav>
-      <section className="hero dashboard-panel"><div className="hero-copy"><p className="eyebrow">Autonomous content curation dashboard</p><h1>Show users what your agents can discover, analyze, write, and publish.</h1><p className="hero-text">A responsive homepage dashboard that explains the agent workflow with visual cards, a flow diagram, content snippets, and a one-time trial gate for new users.</p><div className="hero-actions"><button className="primary-button" onClick={startTrial} disabled={loading}>{loading ? 'Running agent...' : trialUsed ? 'Login to keep trying' : 'Try one agent run'}</button><button className="secondary-button" onClick={refreshDashboard}>Refresh dashboard</button></div></div><div className="agent-orbit" aria-label="Agent capability illustration">{agentCapabilities.map((agent) => <div className="orbit-card" key={agent.title}>{agent.icon}<span>{agent.metric}</span></div>)}</div></section>
-      {message && <div className="notice">{message}</div>}
-      <section className="stats-grid">{dashboardStats.map((item) => <article className={`stat-card ${item.tone}`} key={item.label}><strong>{item.value}</strong><span>{item.label}</span></article>)}</section>
-      <section className="capability-grid">{agentCapabilities.map((agent) => <article className="capability-card" key={agent.title}><div className="capability-icon">{agent.icon}</div><h3>{agent.title}</h3><p>{agent.description}</p><span>{agent.metric}</span></article>)}</section>
-      <section className="dashboard-panel"><h2>Agent workflow</h2><div className="flow-diagram">{workflowSteps.map((step, index) => <React.Fragment key={step.label}><div className="flow-step"><b>{step.icon}</b><strong>{step.label}</strong><span>{step.detail}</span></div>{index < workflowSteps.length - 1 && <div className="flow-arrow">→</div>}</React.Fragment>)}</div></section>
-      <section className="content-grid"><div className="dashboard-panel"><h2>Snippet previews</h2>{snippetExamples.map((snippet) => <div className="snippet-card" key={snippet.platform}><span>{snippet.platform}</span><pre>{snippet.code}</pre></div>)}</div><div className="dashboard-panel"><h2>{showLogin ? 'Create your workspace' : 'Live repository queue'}</h2>{showLogin ? <form className="login-card" onSubmit={handleLoginSubmit}><input placeholder="Full name" value={loginForm.name} onChange={(e) => setLoginForm({ ...loginForm, name: e.target.value })} /><input placeholder="Work email" type="email" required value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} /><input placeholder="Role or team" value={loginForm.role} onChange={(e) => setLoginForm({ ...loginForm, role: e.target.value })} /><button className="primary-button">Continue</button></form> : <RepoList repos={repos} loading={loading} onAnalyze={guardAction(analyzeRepo)} onPublish={guardAction(publishPost)} />}</div></section>
-      <section className="dashboard-panel"><h2>Published posts</h2><div className="post-list">{posts.length === 0 ? <p className="empty-state">No posts yet. Run discovery, analyze a repository, then publish a channel-specific post.</p> : posts.map((post) => <article className="post-card" key={post.id}><strong>{post.platform.toUpperCase()}</strong><span>{post.status}</span>{post.published_url && <a href={post.published_url} target="_blank" rel="noopener noreferrer">View post</a>}</article>)}</div></section>
-    </main>
+    <div className="ticker" aria-hidden="true">
+      <div className="ticker-track">{half}{half}</div>
+    </div>
   )
 }
 
-function RepoList({ repos, loading, onAnalyze, onPublish }) {
-  if (repos.length === 0) return <p className="empty-state">No repositories loaded yet. Try the discovery agent to fill this queue.</p>
-  return <div className="repo-list">{repos.map((repo) => <article className="repo-card" key={repo.id}><div><strong>{repo.raw_name}</strong><span>⭐ {repo.stars} · {repo.status}</span><a href={repo.github_url} target="_blank" rel="noopener noreferrer">{repo.github_url}</a></div><div className="repo-actions">{repo.status === 'pending_analysis' && <button disabled={loading} onClick={() => onAnalyze(repo.id)}>Analyze</button>}{repo.status === 'analyzed' && <><button disabled={loading} onClick={() => onPublish('linkedin', repo.id)}>LinkedIn</button><button disabled={loading} onClick={() => onPublish('devto', repo.id)}>Dev.to</button></>}</div>{repo.analysis && <p className="analysis-note">{repo.analysis.one_liner_hook} · Score {repo.analysis.novelty_score}/10</p>}</article>)}</div>
-}
+/* ─── Pipeline ─── */
+const STAGES = [
+  { idx: '01', name: 'Scout', desc: 'Continuously reads trending topics, competitor feeds, and your own top performers to find the window where a post lands hardest.', meta: 'sources · 40+ feeds\ncadence · every 12 min' },
+  { idx: '02', name: 'Draft', desc: 'Writes the post in your voice \u2014 trained on your best material, scored against your engagement history before a human ever sees it.', meta: 'voice match · > 95%\nangles per topic · 3' },
+  { idx: '03', name: 'Approve', desc: 'Runs its own review pass, flags anything risky, and routes to you only when it\u2019s genuinely unsure. Most drafts never need you.', meta: 'auto-approval · 87%\nescalation · < 5 sec' },
+  { idx: '04', name: 'Publish', desc: 'Ships to every connected platform at the minute it predicted would perform best, then feeds the result back into the next cycle.', meta: 'platforms · 6 live\ntiming · per-post optimal' },
+]
 
-export default App
+/* ═══════════════════════════════════════════════════════════════════════════ */
+export default function App() {
+  /* ── toast state ── */
+  const [toasts, setToasts] = useState([])
+  const toast = useCallback((msg, ok = true) => {
+    const id = Date.now() + Math.random()
+    setToasts(p => [...p, { id, msg, err: ok === false }])
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4200)
+  }, [])
+
+  /* ── clock ── */
+  const clock = useClock()
+
+  /* ── agent console feed ── */
+  const [feed, setFeed] = useState(() => {
+    const initial = []
+    for (let i = 0; i < 7; i++) { const e = pick(EVENTS)(); initial.push({ tag: e[0], text: e[1], time: now() }) }
+    return initial
+  })
+  useEffect(() => {
+    const id = setInterval(() => {
+      const e = pick(EVENTS)()
+      setFeed(p => [...p.slice(-12), { tag: e[0], text: e[1], time: now() }])
+    }, 2400)
+    return () => clearInterval(id)
+  }, [])
+
+  /* ── email forms ── */
+  const handleEmail = useCallback((e) => {
+    e.preventDefault()
+    const v = e.target.querySelector('input').value.trim()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast("That email doesn\u2019t look right \u2014 try again.", false); return }
+    toast(`You\u2019re in, ${v} \u2014 agent #${rnd(1100, 1900)} assigned. Watch your inbox.`)
+    e.target.querySelector('input').value = ''
+  }, [toast])
+
+  /* ── demo: chips ── */
+  const [chips, setChips] = useState({ X: true, LinkedIn: true, Instagram: false, Threads: false })
+  const targetList = Object.entries(chips).filter(([, v]) => v).map(([k]) => k)
+  const targetLabel = targetList.length ? targetList.join(' + ') : 'none'
+  const toggleChip = useCallback((name) => {
+    setChips(p => {
+      const next = { ...p, [name]: !p[name] }
+      const onCount = Object.values(next).filter(Boolean).length
+      if (onCount === 0) { toast('Keep at least one feed on \u2014 the agent needs somewhere to ship.', false); return p }
+      return next
+    })
+  }, [toast])
+
+  /* ── demo: composer ── */
+  const [topic, setTopic] = useState('')
+  const [draftId, setDraftId] = useState('DRAFT \u2014 POST #\u2014\u2014')
+  const [draftState, setDraftState] = useState('IDLE')
+  const [statusLog, setStatusLog] = useState([])
+  const [draftText, setDraftText] = useState('')
+  const [drafting, setDrafting] = useState(false)
+  const [showCaret, setShowCaret] = useState(false)
+  const [footVisible, setFootVisible] = useState(false)
+  const [footChars, setFootChars] = useState('')
+  const [footQueue, setFootQueue] = useState('')
+  const busyRef = useRef(false)
+
+  const runAgent = useCallback(async () => {
+    if (busyRef.current) return
+    const t = topic.trim()
+    if (!t) { toast('Give the agent a topic first \u2014 it can\u2019t read minds. Yet.', false); return }
+    const targets = Object.entries(chips).filter(([, v]) => v).map(([k]) => k)
+    busyRef.current = true
+    setDrafting(true)
+    setDraftState('WORKING')
+    setStatusLog([{ text: `scouting ${rnd(140, 980)} conversations about \u201c${t}\u201d\u2026` }])
+    setFootVisible(false)
+    setDraftText('')
+    setShowCaret(true)
+    setDraftId(`DRAFT \u2014 POST #${rnd(4000, 9999)}`)
+
+    await sleep(900)
+    setStatusLog(p => [...p.slice(-2), { text: `3 angles found · best fit: \u201c${pick(ANGLES)}\u201d · writing for ${targets.join(' + ')}` }])
+    await sleep(700)
+
+    const draft = pick(DRAFTS)(t)
+    for (const ch of draft) {
+      setDraftText(p => p + ch)
+      await sleep(ch === '\n' ? 55 : rnd(8, 26))
+    }
+    setShowCaret(false)
+
+    const n = draft.length
+    const sched = pick(SCHED_TIMES)
+    setFootChars(`${n} chars · ${n > 280 ? 'will thread for X' : 'fits X in one'}`)
+    setFootQueue(`target <b>${targets.join(' + ')}</b> · queued <b>${sched}</b>`)
+    setFootVisible(true)
+    setDraftState('QUEUED')
+    toast(`Draft queued for ${sched} \u2014 the agent takes it from here.`)
+    setDrafting(false)
+    busyRef.current = false
+  }, [topic, chips, toast])
+
+  /* ── intersection observers ── */
+  const mainRef = useReveal()
+  const countRef = useCountUp()
+
+  /* ═══════════════════════════════════════════════════════════════════════════ */
+  return (
+    <>
+      {/* ═══ HEADER ═══ */}
+      <header>
+        <div className="wrap nav">
+          <a className="wordmark" href="#">AutoPost<b>.</b></a>
+          <span className="status"><span className="dot" />AGENT ONLINE</span>
+          <nav className="nav-links">
+            <a href="#how">How it works</a>
+            <a href="#demo">Live demo</a>
+            <a href="#numbers">Numbers</a>
+          </nav>
+          <a className="btn" href="#cta">Get access</a>
+        </div>
+      </header>
+
+      {/* ═══ HERO ═══ */}
+      <div className="hero" ref={mainRef}>
+        <div className="wrap">
+          <div className="hero-grid">
+            <div>
+              <p className="kicker">Autonomous publishing agent · v2.1</p>
+              <h1>Post like a machine.<br /><em>Sound like a human.</em></h1>
+              <p className="hero-sub">
+                AutoPost is an agent that scouts trends, drafts in your voice, and publishes across
+                every platform \u2014 on a schedule it manages itself. You set the voice once.
+                <strong>It ships every day after that.</strong>
+              </p>
+              <form className="email-form" onSubmit={handleEmail} noValidate>
+                <input type="email" placeholder="you@company.com" aria-label="Email" />
+                <button className="btn" type="submit">Get early access</button>
+              </form>
+              <p className="form-note">Private beta · no card · one email when your agent is ready</p>
+            </div>
+
+            <div className="console" aria-label="Live agent activity">
+              <div className="console-head">
+                <span className="dot" />AGENT CONSOLE \u2014 LIVE<span className="clock">{clock}</span>
+              </div>
+              <div className="feed">
+                {feed.map((l, i) => (
+                  <div key={i} className={`fl${l.tag === 'pub' ? ' hot' : ''}`}>
+                    <span className="ft">[{l.time}]</span>
+                    <span className="fg">{l.tag}</span>
+                    <span>{l.text}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: '0 1rem .9rem' }}><span className="caret-block" /></div>
+            </div>
+          </div>
+
+          <div className="stats" ref={countRef}>
+            <div className="stat"><div className="n"><span className="count" data-count="12438">0</span></div><div className="l">Posts this week</div></div>
+            <div className="stat"><div className="n"><span className="count" data-count="99.98" data-dec="2">0</span>%</div><div className="l">On-time publish rate</div></div>
+            <div className="stat"><div className="n"><span className="count" data-count="6">0</span></div><div className="l">Platforms live</div></div>
+            <div className="stat"><div className="n"><span className="count" data-count="0">0</span></div><div className="l">Humans required</div></div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ TICKER ═══ */}
+      <Ticker />
+
+      {/* ═══ HOW IT WORKS ═══ */}
+      <section id="how">
+        <div className="wrap">
+          <div className="sec-head reveal"><span className="sec-num">01 / METHOD</span><h2>Four stages. <em>Zero hands.</em></h2></div>
+          <svg className="pipe reveal" viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
+            <line x1="10" y1="12" x2="990" y2="12" stroke="#16150F" strokeOpacity=".22" strokeWidth="1" />
+            <circle cx="10" cy="12" r="4" fill="#16150F" />
+            <circle cx="336" cy="12" r="4" fill="#16150F" />
+            <circle cx="664" cy="12" r="4" fill="#16150F" />
+            <circle cx="990" cy="12" r="4" fill="#16150F" />
+            <circle r="4.5" fill="#E8490F"><animateMotion dur="7s" repeatCount="indefinite" path="M10,12 L990,12" /></circle>
+          </svg>
+          {STAGES.map(s => (
+            <div className="stage reveal" key={s.idx}>
+              <div className="idx">{s.idx}</div>
+              <div className="name">{s.name}</div>
+              <div className="desc">{s.desc}</div>
+              <div className="meta">{s.meta.split('\n').map((l, i) => <Fragment key={i}>{l}<br /></Fragment>)}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ═══ DEMO ═══ */}
+      <section id="demo" style={{ borderTop: '1px solid var(--hair)' }}>
+        <div className="wrap">
+          <div className="sec-head reveal"><span className="sec-num">02 / DEMO</span><h2>Watch it <em>draft.</em></h2></div>
+          <div className="demo-grid">
+            <div className="demo-copy reveal">
+              <p>Give the agent a topic and pick your targets. It scouts, picks an angle, writes the draft, and queues it \u2014 one pass, right here on this page.</p>
+              <div className="field">
+                <label htmlFor="topicInput">Topic</label>
+                <input type="text" id="topicInput" placeholder="e.g. AI agents, shipping fast, hiring" maxLength={60} value={topic} onChange={e => setTopic(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Target feeds</label>
+                <div className="chips">
+                  {CHIP_LIST.map(c => (
+                    <button key={c} className={`chip${chips[c] ? ' on' : ''}`} type="button" onClick={() => toggleChip(c)}>{c}</button>
+                  ))}
+                </div>
+                <p className="target-label">target &rarr; <b>{targetLabel}</b></p>
+              </div>
+              <button className="btn run-btn" type="button" disabled={drafting} onClick={runAgent}>
+                {drafting ? 'Running\u2026' : 'Run the agent'}
+              </button>
+            </div>
+
+            <div className="draft-panel reveal">
+              <div className="draft-head">
+                <span>{draftId}</span>
+                <span className={`st${draftState === 'WORKING' ? ' live' : ''}`}>{draftState}</span>
+              </div>
+              <div className="status-log">
+                {statusLog.map((l, i) => <div key={i}><span className="arr">&rarr;</span>{l.text}</div>)}
+              </div>
+              <div className="draft-body">
+                {draftText ? (
+                  <span>{draftText}{showCaret && <span className="caret" />}</span>
+                ) : (
+                  <span className="placeholder">Give the agent a topic \u2014 it scouts, drafts, and queues in one pass.</span>
+                )}
+              </div>
+              <div className={`draft-foot${footVisible ? '' : ' hidden'}`}>
+                <span>{footChars}</span>
+                <span dangerouslySetInnerHTML={{ __html: footQueue }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ NUMBERS ═══ */}
+      <section id="numbers" style={{ borderTop: '1px solid var(--hair)', paddingTop: 'clamp(48px,7vw,80px)', paddingBottom: 'clamp(48px,7vw,80px)' }}>
+        <div className="wrap">
+          <div className="sec-head reveal" style={{ marginBottom: '1.6rem' }}><span className="sec-num">03 / PROOF</span><h2>The agent keeps <em>score.</em></h2></div>
+          <div className="stats reveal" style={{ marginTop: 0, borderTop: 'none' }} ref={countRef}>
+            <div className="stat"><div className="n"><span className="count" data-count="12438">0</span></div><div className="l">Posts shipped this week</div></div>
+            <div className="stat"><div className="n"><span className="count" data-count="41">0</span>%</div><div className="l">Avg. reply-rate lift</div></div>
+            <div className="stat"><div className="n"><span className="count" data-count="28" data-dec="0">0</span>s</div><div className="l">Median scout-to-queue</div></div>
+            <div className="stat"><div className="n"><span className="count" data-count="87">0</span>%</div><div className="l">Drafts auto-approved</div></div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ CTA ═══ */}
+      <section className="cta" id="cta">
+        <div className="wrap">
+          <p className="kicker reveal" style={{ color: 'var(--acc-bright)' }}>Private beta · 190 seats left</p>
+          <h2 className="reveal">Put your feed on <em>autopilot.</em></h2>
+          <p className="reveal">Your agent goes live within 48 hours of invitation. It learns your voice from your twenty best posts \u2014 then it never misses a day.</p>
+          <form className="email-form reveal" onSubmit={handleEmail} noValidate>
+            <input type="email" placeholder="you@company.com" aria-label="Email" />
+            <button className="btn" type="submit">Claim a seat</button>
+          </form>
+          <p className="form-note reveal">One email when your agent is ready. Nothing else, ever.</p>
+        </div>
+      </section>
+
+      {/* ═══ FOOTER ═══ */}
+      <footer>
+        <div className="wrap foot">
+          <span>AUTOPOST \u2014 AN AUTONOMOUS PUBLISHING AGENT</span>
+          <span><a href="#how">METHOD</a> · <a href="#demo">DEMO</a> · <a href="#cta">ACCESS</a></span>
+          <span>&copy; 2025 · BUILT FOR THE AGENTIC HACKATHON</span>
+        </div>
+      </footer>
+
+      {/* ═══ TOASTS ═══ */}
+      <div id="toasts">
+        {toasts.map(t => <ToastItem key={t.id} msg={t.msg} err={t.err} />)}
+      </div>
+    </>
+  )
+}
