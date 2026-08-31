@@ -83,7 +83,7 @@ GitHub Trending  ──▶  Gemini Analysis  ──▶  Content Generation  ─�
 |---|---|
 | Frontend | React 19, Vite 8, React Router 7 |
 | Backend | FastAPI, Python 3.11+ |
-| AI / Agent | Google Gemini 2.5 Flash, Google ADK 2.8 |
+| AI / Agent | Google Gemini 3.5 Flash, Google ADK 2.8 |
 | Database | Firebase Firestore |
 | Hosting | Firebase Hosting (frontend), Render (backend) |
 | Publishing | LinkedIn REST API, Dev.to API |
@@ -136,7 +136,7 @@ cp .env.example .env
 | Variable | Description | Where to get it |
 |---|---|---|
 | `GEMINI_API_KEY` | Google Gemini API key | [aistudio.google.com](https://aistudio.google.com) |
-| `GEMINI_MODEL` | Model to use | Leave as `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Model to use | Leave as `gemini-3.5-flash` |
 | `GITHUB_TOKEN` | Fine-grained PAT | GitHub → Settings → Developer settings → Fine-grained tokens |
 | `GITHUB_MAX_REPOS_PER_RUN` | Max repos to fetch per discovery run | Recommended: `10` |
 | `DEVTO_API_KEY` | Dev.to API key | dev.to → Settings → Extensions → API Keys |
@@ -365,6 +365,6 @@ MIT — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built for the **Google Agentic Hackathon** · Powered by **Gemini 2.5 Flash** + **Google ADK**
+Built for the **Google Agentic Hackathon** · Powered by **Gemini 3.5 Flash** + **Google ADK**
 
 </div>
