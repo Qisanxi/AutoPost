@@ -94,9 +94,13 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
         safe_limit = max(1, min(limit, 30))
         repos = client.search_trending(languages=lang_list, per_page=safe_limit)
 
+        # Instantiate once — previously a new FirestoreClient() (and therefore
+        # a new Firestore connection) was created on every loop iteration,
+        # which is wasteful and can exhaust connection limits under load.
+        fs_client = FirestoreClient()
         saved = []
         for repo in repos:
-            if FirestoreClient().check_duplicate(repo["url"]):
+            if fs_client.check_duplicate(repo["url"]):
                 continue
             doc_data = {
                 "github_url": repo["url"],
@@ -109,7 +113,7 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
                 "status": "pending_analysis",
                 "created_at": firestore.SERVER_TIMESTAMP,
             }
-            doc_id = FirestoreClient().create_repo(doc_data)
+            doc_id = fs_client.create_repo(doc_data)
             saved.append({"id": doc_id, "name": repo["name"], "url": repo["url"]})
 
         return {"status": "success", "count": len(saved), "repos": saved}
