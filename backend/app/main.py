@@ -45,6 +45,7 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",
     "http://localhost:4173",
+    "https://autopost-9c37c.web.app",
 ]
 app.add_middleware(
     CORSMiddleware,
