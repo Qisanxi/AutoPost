@@ -1,9 +1,11 @@
 """
 Firestore Database Client — Safe wrapper with parameterized queries.
 Prevents injection, enforces schema, handles errors gracefully.
+Supports session-scoped namespacing for user isolation.
 """
 
 from typing import Dict, Any, List, Optional
+import re
 
 from firebase_admin import firestore
 import structlog
@@ -12,12 +14,42 @@ from ..security import validate_github_url, validate_tags
 
 logger = structlog.get_logger(__name__)
 
+# Validate session IDs: UUID-like format (8-4-4-4-12 hex)
+SESSION_ID_RE = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+
+
+def _validate_session_id(sid: str) -> str:
+    """Validate and return a session ID. Raises ValueError if invalid."""
+    if not isinstance(sid, str) or not SESSION_ID_RE.match(sid):
+        raise ValueError(f"Invalid session ID format")
+    return sid
+
 
 class FirestoreClient:
-    """Secure Firestore client with validation and safe defaults."""
+    """Secure Firestore client with validation, safe defaults, and session isolation.
 
-    def __init__(self):
+    When a session_id is provided, all discovered_repos and posts are namespaced
+    under sessions/{session_id}/discovered_repos and sessions/{session_id}/posts.
+    Global collections (tag_performance, agent_sessions, health_checks) remain shared.
+    """
+
+    def __init__(self, session_id: Optional[str] = None):
         self.db = firestore.client()
+        self.session_id: Optional[str] = None
+        if session_id:
+            self.session_id = _validate_session_id(session_id)
+
+    def _repos_collection(self):
+        """Return the correct repos collection ref (session-scoped or global)."""
+        if self.session_id:
+            return self.db.collection("sessions").document(self.session_id).collection("discovered_repos")
+        return self.db.collection("discovered_repos")
+
+    def _posts_collection(self):
+        """Return the correct posts collection ref (session-scoped or global)."""
+        if self.session_id:
+            return self.db.collection("sessions").document(self.session_id).collection("posts")
+        return self.db.collection("posts")
 
     # ─────────────────────────────────────────────────────────────────────────
     # REPOSITORIES
@@ -53,27 +85,28 @@ class FirestoreClient:
             "created_at": firestore.SERVER_TIMESTAMP,
         }
 
-        doc_ref = self.db.collection("discovered_repos").document()
+        col = self._repos_collection()
+        doc_ref = col.document()
         doc_ref.set(clean_data)
-        logger.info("repo_created", doc_id=doc_ref.id, name=clean_data["raw_name"])
+        logger.info("repo_created", doc_id=doc_ref.id, name=clean_data["raw_name"],
+                     session=self.session_id)
         return doc_ref.id
 
     def get_repo(self, repo_id: str) -> Optional[Dict[str, Any]]:
         """Get a single repo by ID."""
-        doc = self.db.collection("discovered_repos").document(repo_id).get()
+        doc = self._repos_collection().document(repo_id).get()
         if doc.exists:
             return {"id": doc.id, **doc.to_dict()}
         return None
 
     def get_repos_by_status(self, status: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Query repos by status. Parameterized — safe from injection."""
-        # Validate status against known values
         valid_statuses = {"pending_analysis", "analyzed", "approved", "rejected", "published", "failed"}
         if status not in valid_statuses:
             raise ValueError(f"Invalid status: {status}")
 
         docs = (
-            self.db.collection("discovered_repos")
+            self._repos_collection()
             .where("status", "==", status)
             .order_by("created_at", direction=firestore.Query.DESCENDING)
             .limit(min(limit, 100))
@@ -89,21 +122,20 @@ class FirestoreClient:
 
         update_data = {"status": status}
         if extra_fields:
-            # Only allow known safe fields
             allowed = {"analysis", "curation", "analyzed_at", "published_at", "error_log"}
             for key in extra_fields:
                 if key in allowed:
                     update_data[key] = extra_fields[key]
 
-        self.db.collection("discovered_repos").document(repo_id).update(update_data)
+        self._repos_collection().document(repo_id).update(update_data)
         logger.info("repo_status_updated", repo_id=repo_id, status=status)
 
     def check_duplicate(self, github_url: str) -> bool:
-        """Check if a repo URL already exists."""
+        """Check if a repo URL already exists in this session."""
         if not validate_github_url(github_url):
             return False
         docs = (
-            self.db.collection("discovered_repos")
+            self._repos_collection()
             .where("github_url", "==", github_url)
             .limit(1)
             .stream()
@@ -140,15 +172,17 @@ class FirestoreClient:
             "created_at": firestore.SERVER_TIMESTAMP,
         }
 
-        doc_ref = self.db.collection("posts").document()
+        col = self._posts_collection()
+        doc_ref = col.document()
         doc_ref.set(clean_data)
-        logger.info("post_created", doc_id=doc_ref.id, platform=platform)
+        logger.info("post_created", doc_id=doc_ref.id, platform=platform,
+                     session=self.session_id)
         return doc_ref.id
 
     def get_posts(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Get all posts ordered by creation time."""
         docs = (
-            self.db.collection("posts")
+            self._posts_collection()
             .order_by("created_at", direction=firestore.Query.DESCENDING)
             .limit(min(limit, 100))
             .stream()
@@ -161,7 +195,7 @@ class FirestoreClient:
             raise ValueError(f"Invalid platform: {platform}")
 
         docs = (
-            self.db.collection("posts")
+            self._posts_collection()
             .where("platform", "==", platform)
             .order_by("created_at", direction=firestore.Query.DESCENDING)
             .limit(min(limit, 100))
@@ -170,7 +204,7 @@ class FirestoreClient:
         return [{"id": d.id, **d.to_dict()} for d in docs]
 
     # ─────────────────────────────────────────────────────────────────────────
-    # TAG PERFORMANCE (Learning Loop)
+    # TAG PERFORMANCE (Learning Loop) — global, not session-scoped
     # ─────────────────────────────────────────────────────────────────────────
 
     def get_tag_performance(self, tag: str) -> Optional[Dict[str, Any]]:
@@ -192,7 +226,6 @@ class FirestoreClient:
         doc = doc_ref.get()
 
         if doc.exists:
-            # Incremental update
             current = doc.to_dict()
             new_count = current.get("posts_count", 0) + 1
             new_likes = current.get("total_linkedin_likes", 0) + engagement.get("linkedin_likes", 0)
@@ -206,7 +239,6 @@ class FirestoreClient:
                 "last_updated": firestore.SERVER_TIMESTAMP,
             })
         else:
-            # Create new
             doc_ref.set({
                 "tag": tag,
                 "posts_count": 1,
@@ -219,7 +251,7 @@ class FirestoreClient:
         logger.info("tag_performance_updated", tag=tag)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # AGENT SESSIONS
+    # AGENT SESSIONS — global, not session-scoped
     # ─────────────────────────────────────────────────────────────────────────
 
     def create_session(self, session_data: Dict[str, Any]) -> str:

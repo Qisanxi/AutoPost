@@ -1,8 +1,9 @@
 import json
+import re
 from contextlib import asynccontextmanager
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import initialize_app, firestore
 import structlog
@@ -18,6 +19,9 @@ from .models.repo import RepoAnalysis
 
 logger = structlog.get_logger(__name__)
 db: firestore.Client | None = None
+
+# Session ID validation (UUID v4 format)
+SESSION_ID_RE = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
 
 
 @asynccontextmanager
@@ -36,7 +40,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DevRel Agent API",
     description="Autonomous content curation agent",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -45,6 +49,7 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",
     "http://localhost:4173",
+    "https://autopost-9c37c.web.app",
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -56,13 +61,25 @@ app.add_middleware(
 )
 
 
+def _get_session_id(x_session_id: Optional[str] = None) -> Optional[str]:
+    """Extract and validate X-Session-ID header."""
+    if x_session_id and SESSION_ID_RE.match(x_session_id):
+        return x_session_id
+    return None
+
+
+def _get_firestore(session_id: Optional[str]) -> FirestoreClient:
+    """Create a FirestoreClient with optional session scoping."""
+    return FirestoreClient(session_id=session_id)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HEALTH
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/", tags=["Health"])
 async def root() -> Dict[str, str]:
-    return {"status": "ok", "service": "devrel-agent", "version": "0.3.0"}
+    return {"status": "ok", "service": "devrel-agent", "version": "0.4.0"}
 
 
 @app.get("/health", tags=["Health"])
@@ -83,10 +100,18 @@ async def health_check() -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/agent/discover", tags=["Agent"])
-async def discover_repos(languages: str = "typescript,python", limit: int = 5) -> Dict[str, Any]:
-    """Discover trending repos from GitHub and save to Firestore."""
+async def discover_repos(
+    request: Request,
+    languages: str = "typescript,python",
+    limit: int = 5,
+    x_session_id: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Discover trending repos from GitHub and save to Firestore (session-scoped)."""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
+
+    session_id = _get_session_id(x_session_id)
+    fs = _get_firestore(session_id)
 
     try:
         client = GitHubClient()
@@ -96,7 +121,7 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
 
         saved = []
         for repo in repos:
-            if FirestoreClient().check_duplicate(repo["url"]):
+            if fs.check_duplicate(repo["url"]):
                 continue
             doc_data = {
                 "github_url": repo["url"],
@@ -109,7 +134,7 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
                 "status": "pending_analysis",
                 "created_at": firestore.SERVER_TIMESTAMP,
             }
-            doc_id = FirestoreClient().create_repo(doc_data)
+            doc_id = fs.create_repo(doc_data)
             saved.append({"id": doc_id, "name": repo["name"], "url": repo["url"]})
 
         return {"status": "success", "count": len(saved), "repos": saved}
@@ -125,13 +150,19 @@ async def discover_repos(languages: str = "typescript,python", limit: int = 5) -
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/agent/analyze/{repo_id}", tags=["Agent"])
-async def analyze_repo(repo_id: str) -> Dict[str, Any]:
+async def analyze_repo(
+    repo_id: str,
+    x_session_id: Optional[str] = Header(None),
+) -> Dict[str, Any]:
     """Fetch README and analyze a repo using Gemini."""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+    session_id = _get_session_id(x_session_id)
+    fs = _get_firestore(session_id)
+
     try:
-        doc = db.collection("discovered_repos").document(repo_id).get()
+        doc = fs._repos_collection().document(repo_id).get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Repo not found")
 
@@ -143,7 +174,7 @@ async def analyze_repo(repo_id: str) -> Dict[str, Any]:
         readme = gh.fetch_readme(repo_url)
 
         if not readme:
-            db.collection("discovered_repos").document(repo_id).update({"status": "failed"})
+            fs._repos_collection().document(repo_id).update({"status": "failed"})
             return {"status": "failed", "reason": "No README found"}
 
         # Analyze with Gemini
@@ -169,7 +200,7 @@ Return: {{"problem_solved":"...","tech_stack":[],"domain_tags":[],"novelty_score
         analysis = RepoAnalysis(**json.loads(analysis_text)).model_dump(mode="json")
 
         # Update Firestore
-        db.collection("discovered_repos").document(repo_id).update({
+        fs._repos_collection().document(repo_id).update({
             "analysis": analysis,
             "status": "analyzed",
             "analyzed_at": firestore.SERVER_TIMESTAMP,
@@ -188,13 +219,19 @@ Return: {{"problem_solved":"...","tech_stack":[],"domain_tags":[],"novelty_score
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/agent/publish/linkedin/{repo_id}", tags=["Agent"])
-async def publish_linkedin(repo_id: str) -> Dict[str, Any]:
+async def publish_linkedin(
+    repo_id: str,
+    x_session_id: Optional[str] = Header(None),
+) -> Dict[str, Any]:
     """Generate and publish a LinkedIn post for a repo."""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+    session_id = _get_session_id(x_session_id)
+    fs = _get_firestore(session_id)
+
     try:
-        doc = db.collection("discovered_repos").document(repo_id).get()
+        doc = fs._repos_collection().document(repo_id).get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Repo not found")
 
@@ -221,8 +258,8 @@ Return ONLY the post text."""
         li = LinkedInClient()
         result = li.publish_post(post_text)
 
-        # Save to Firestore
-        post_ref = db.collection("posts").document()
+        # Save to Firestore (session-scoped)
+        post_ref = fs._posts_collection().document()
         post_ref.set({
             "repo_id": repo_id,
             "platform": "linkedin",
@@ -239,7 +276,7 @@ Return ONLY the post text."""
         except Exception as e:
             log_safe_error("discord_notification", e)
 
-        db.collection("discovered_repos").document(repo_id).update({"status": "published", "published_at": firestore.SERVER_TIMESTAMP})
+        fs._repos_collection().document(repo_id).update({"status": "published", "published_at": firestore.SERVER_TIMESTAMP})
         return {"status": "published", "platform": "linkedin", "result": result}
     except HTTPException:
         raise
@@ -249,13 +286,19 @@ Return ONLY the post text."""
 
 
 @app.post("/agent/publish/devto/{repo_id}", tags=["Agent"])
-async def publish_devto(repo_id: str) -> Dict[str, Any]:
+async def publish_devto(
+    repo_id: str,
+    x_session_id: Optional[str] = Header(None),
+) -> Dict[str, Any]:
     """Generate and publish a Dev.to article for a repo."""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+    session_id = _get_session_id(x_session_id)
+    fs = _get_firestore(session_id)
+
     try:
-        doc = db.collection("discovered_repos").document(repo_id).get()
+        doc = fs._repos_collection().document(repo_id).get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Repo not found")
 
@@ -285,13 +328,13 @@ Return ONLY the article markdown with title on first line as: # Title"""
         if not body:
             raise HTTPException(status_code=502, detail="Generated Dev.to article body is empty")
 
-        # Publish
+        # Publish (tags are sanitized inside DevToClient now)
         devto = DevToClient()
         tags = analysis.get("domain_tags", [])[:4]
         result = devto.publish_article(title, body, tags)
 
-        # Save to Firestore
-        post_ref = db.collection("posts").document()
+        # Save to Firestore (session-scoped)
+        post_ref = fs._posts_collection().document()
         post_ref.set({
             "repo_id": repo_id,
             "platform": "devto",
@@ -308,7 +351,7 @@ Return ONLY the article markdown with title on first line as: # Title"""
         except Exception as e:
             log_safe_error("discord_notification", e)
 
-        db.collection("discovered_repos").document(repo_id).update({"status": "published", "published_at": firestore.SERVER_TIMESTAMP})
+        fs._repos_collection().document(repo_id).update({"status": "published", "published_at": firestore.SERVER_TIMESTAMP})
         return {"status": "published", "platform": "devto", "result": result}
     except HTTPException:
         raise
@@ -322,14 +365,21 @@ Return ONLY the article markdown with title on first line as: # Title"""
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/agent/repos", tags=["Dashboard"])
-async def list_repos(status: str = "", limit: int = 20) -> List[Dict[str, Any]]:
-    """List discovered repos for the dashboard."""
+async def list_repos(
+    status: str = "",
+    limit: int = 20,
+    x_session_id: Optional[str] = Header(None),
+) -> List[Dict[str, Any]]:
+    """List discovered repos for the dashboard (session-scoped)."""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+    session_id = _get_session_id(x_session_id)
+    fs = _get_firestore(session_id)
+
     if status and status not in {"pending_analysis", "analyzed", "approved", "rejected", "published", "failed"}:
         raise HTTPException(status_code=400, detail="Invalid status")
-    query = db.collection("discovered_repos").order_by("created_at", direction=firestore.Query.DESCENDING)
+    query = fs._repos_collection().order_by("created_at", direction=firestore.Query.DESCENDING)
     if status:
         query = query.where("status", "==", status)
     docs = query.limit(max(1, min(limit, 50))).stream()
@@ -337,23 +387,34 @@ async def list_repos(status: str = "", limit: int = 20) -> List[Dict[str, Any]]:
 
 
 @app.get("/agent/posts", tags=["Dashboard"])
-async def list_posts(limit: int = 20) -> List[Dict[str, Any]]:
-    """List published posts for the dashboard."""
+async def list_posts(
+    limit: int = 20,
+    x_session_id: Optional[str] = Header(None),
+) -> List[Dict[str, Any]]:
+    """List published posts for the dashboard (session-scoped)."""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    docs = db.collection("posts").order_by("created_at", direction=firestore.Query.DESCENDING).limit(max(1, min(limit, 50))).stream()
+    session_id = _get_session_id(x_session_id)
+    fs = _get_firestore(session_id)
+
+    docs = fs._posts_collection().order_by("created_at", direction=firestore.Query.DESCENDING).limit(max(1, min(limit, 50))).stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
 
 @app.get("/agent/stats", tags=["Dashboard"])
-async def get_stats() -> Dict[str, Any]:
-    """Get agent statistics."""
+async def get_stats(
+    x_session_id: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Get agent statistics (session-scoped)."""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    repo_count = len(list(db.collection("discovered_repos").stream()))
-    post_count = len(list(db.collection("posts").stream()))
+    session_id = _get_session_id(x_session_id)
+    fs = _get_firestore(session_id)
+
+    repo_count = len(list(fs._repos_collection().stream()))
+    post_count = len(list(fs._posts_collection().stream()))
     return {
         "total_repos": repo_count,
         "total_posts": post_count,
