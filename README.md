@@ -48,32 +48,31 @@ GitHub Trending  ──▶  Gemini Analysis  ──▶  Content Generation  ─�
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph Frontend [Frontend (React)]
-        LP[Landing Page]
-        DB[Dashboard]
-        LP --> DB --> API[Session-scoped API calls]
-        note right of Frontend: Vite + Firebase Hosting
-    end
-
-    API -->|HTTPS + X-Session-ID| Backend
-
-    subgraph Backend [Backend (FastAPI on Render)]
-        DISC[/agent/discover/] --> GC[GitHub Client] --> FS[Firestore]
-        ANALYZE[/agent/analyze/] --> GEM[Gemini API] --> FS
-        PUBLISH[/agent/publish/] --> LNK[LinkedIn API] --> FS
-        PUBLISH --> DEV[Dev.to API]
-        PUBLISH --> DIS[Discord Webhook]
-        note right of Backend: Google ADK Agent (devrel_agent.py)
-    end
-
-    Backend --> Database
-
-    subgraph Database [Firebase Firestore]
-        S1[sessions/{sessionId}/discovered_repos/{repoId}]
-        S2[sessions/{sessionId}/posts/{postId}]
-    end
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        FRONTEND (React)                          │
+│  LandingPage  ──▶  Dashboard  ──▶  Session-scoped API calls     │
+│                     (Vite + Firebase Hosting)                    │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ HTTPS + X-Session-ID header
+┌────────────────────────────▼────────────────────────────────────┐
+│                      BACKEND (FastAPI)                           │
+│                      Deployed on Render                          │
+│                                                                  │
+│  /agent/discover  ──▶  GitHubClient  ──▶  Firestore             │
+│  /agent/analyze   ──▶  Gemini API    ──▶  Firestore             │
+│  /agent/publish   ──▶  LinkedIn API  ──▶  Firestore             │
+│                   ──▶  Dev.to API    ──▶  Firestore             │
+│                   ──▶  Discord Webhook                          │
+│                                                                  │
+│  Google ADK Agent  (devrel_agent.py — autonomous runner)        │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────────┐
+│                     Firebase Firestore                           │
+│  sessions/{sessionId}/discovered_repos/{repoId}                 │
+│  sessions/{sessionId}/posts/{postId}                            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
