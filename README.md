@@ -14,7 +14,7 @@
 
 ## 🎥 Demo
 
-> 📹 **Video walkthrough coming soon** — recording in progress.
+> 📹 Video Link : [https://youtube.com/shorts/7tPspbaJHww?feature=share](https://youtube.com/shorts/7tPspbaJHww?feature=share)
 
 **Live links:**
 - 🌐 Frontend: [https://autopost-9c37c.web.app/#/](https://autopost-9c37c.web.app/#/)
