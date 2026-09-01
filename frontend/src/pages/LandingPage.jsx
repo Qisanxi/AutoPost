@@ -373,7 +373,7 @@ export default function LandingPage({ toast }) {
         <div className="wrap foot">
           <span>AUTOPOST — AN AUTONOMOUS PUBLISHING AGENT</span>
           <span><a href="#how">METHOD</a> · <a href="#demo">DEMO</a> · <a href="#cta">ACCESS</a></span>
-          <span>© 2025 · BUILT FOR THE AGENTIC HACKATHON</span>
+          <span>© 2026 · BUILT FOR THE AGENTIC HACKATHON</span>
         </div>
       </footer>
     </>
