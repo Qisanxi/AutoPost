@@ -230,11 +230,11 @@ export default function LandingPage({ toast }) {
         <div className="wrap">
           <div className="hero-grid">
             <div>
-              <p className="kicker">Autonomous publishing agent \u00b7 v2.1</p>
+              <p className="kicker">Autonomous publishing agent · v2.1</p>
               <h1>Post like a machine.<br /><em>Sound like a human.</em></h1>
               <p className="hero-sub">
                 AutoPost is an agent that scouts trends, drafts in your voice, and publishes across
-                every platform \u2014 on a schedule it manages itself. You set the voice once.
+                every platform — on a schedule it manages itself. You set the voice once.
                 <strong>It ships every day after that.</strong>
               </p>
               <div className="hero-actions">
@@ -245,7 +245,7 @@ export default function LandingPage({ toast }) {
 
             <div className="console" aria-label="Live agent activity">
               <div className="console-head">
-                <span className="dot" />AGENT CONSOLE \u2014 LIVE<span className="clock">{clock}</span>
+                <span className="dot" />AGENT CONSOLE — LIVE<span className="clock">{clock}</span>
               </div>
               <div className="feed">
                 {feed.map((l, i) => (
@@ -300,7 +300,7 @@ export default function LandingPage({ toast }) {
           <div className="sec-head reveal"><span className="sec-num">02 / DEMO</span><h2>Watch it <em>draft.</em></h2></div>
           <div className="demo-grid">
             <div className="demo-copy reveal">
-              <p>Give the agent a topic and pick your targets. It scouts, picks an angle, writes the draft, and queues it \u2014 one pass, right here on this page.</p>
+              <p>Give the agent a topic and pick your targets. It scouts, picks an angle, writes the draft, and queues it — one pass, right here on this page.</p>
               <div className="field">
                 <label htmlFor="topicInput">Topic</label>
                 <input type="text" id="topicInput" placeholder="e.g. AI agents, shipping fast, hiring" maxLength={60} value={topic} onChange={e => setTopic(e.target.value)} />
@@ -330,7 +330,7 @@ export default function LandingPage({ toast }) {
                 {draftText ? (
                   <span>{draftText}{showCaret && <span className="caret" />}</span>
                 ) : (
-                  <span className="placeholder">Give the agent a topic \u2014 it scouts, drafts, and queues in one pass.</span>
+                  <span className="placeholder">Give the agent a topic — it scouts, drafts, and queues in one pass.</span>
                 )}
               </div>
               <div className={`draft-foot${footVisible ? '' : ' hidden'}`}>
@@ -358,9 +358,9 @@ export default function LandingPage({ toast }) {
       {/* ═══ CTA ═══ */}
       <section className="cta" id="cta">
         <div className="wrap">
-          <p className="kicker reveal" style={{ color: 'var(--acc-bright)' }}>Private beta \u00b7 190 seats left</p>
+          <p className="kicker reveal" style={{ color: 'var(--acc-bright)' }}>Private beta · 190 seats left</p>
           <h2 className="reveal">Put your feed on <em>autopilot.</em></h2>
-          <p className="reveal">Your agent goes live within 48 hours of invitation. It learns your voice from your twenty best posts \u2014 then it never misses a day.</p>
+          <p className="reveal">Your agent goes live within 48 hours of invitation. It learns your voice from your twenty best posts — then it never misses a day.</p>
           <div className="cta-actions reveal">
             <button className="btn" onClick={() => navigate('/dashboard')} style={{ background: 'var(--acc)', borderColor: 'var(--acc)', padding: '.9rem 2rem', fontSize: '.78rem' }}>Get started</button>
           </div>
@@ -371,9 +371,9 @@ export default function LandingPage({ toast }) {
       {/* ═══ FOOTER ═══ */}
       <footer>
         <div className="wrap foot">
-          <span>AUTOPOST \u2014 AN AUTONOMOUS PUBLISHING AGENT</span>
-          <span><a href="#how">METHOD</a> \u00b7 <a href="#demo">DEMO</a> \u00b7 <a href="#cta">ACCESS</a></span>
-          <span>\u00a9 2025 \u00b7 BUILT FOR THE AGENTIC HACKATHON</span>
+          <span>AUTOPOST — AN AUTONOMOUS PUBLISHING AGENT</span>
+          <span><a href="#how">METHOD</a> · <a href="#demo">DEMO</a> · <a href="#cta">ACCESS</a></span>
+          <span>© 2025 · BUILT FOR THE AGENTIC HACKATHON</span>
         </div>
       </footer>
     </>
