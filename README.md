@@ -48,31 +48,42 @@ GitHub Trending  ──▶  Gemini Analysis  ──▶  Content Generation  ─�
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        FRONTEND (React)                          │
-│  LandingPage  ──▶  Dashboard  ──▶  Session-scoped API calls     │
-│                     (Vite + Firebase Hosting)                    │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTPS + X-Session-ID header
-┌────────────────────────────▼────────────────────────────────────┐
-│                      BACKEND (FastAPI)                           │
-│                      Deployed on Render                          │
-│                                                                  │
-│  /agent/discover  ──▶  GitHubClient  ──▶  Firestore             │
-│  /agent/analyze   ──▶  Gemini API    ──▶  Firestore             │
-│  /agent/publish   ──▶  LinkedIn API  ──▶  Firestore             │
-│                   ──▶  Dev.to API    ──▶  Firestore             │
-│                   ──▶  Discord Webhook                          │
-│                                                                  │
-│  Google ADK Agent  (devrel_agent.py — autonomous runner)        │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────┐
-│                     Firebase Firestore                           │
-│  sessions/{sessionId}/discovered_repos/{repoId}                 │
-│  sessions/{sessionId}/posts/{postId}                            │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Browser["Frontend\nReact · Firebase Hosting"]
+
+    subgraph BE["Backend · Render"]
+        API["FastAPI\n/discover · /analyze · /publish"]
+
+        subgraph ADK["Google ADK Agent — devrel_agent.py"]
+            direction LR
+            Agent["DevRel Agent\nGemini 3.5 Flash\nas reasoning brain"]
+            Tools["Tool Suite\nDiscovery · Analysis\nGeneration · Publishing · Memory"]
+            Agent <-->|"plan and act loop"| Tools
+        end
+
+        API --> Agent
+    end
+
+    Gemini["Gemini 3.5 Flash API\n\n1 · ADK reasoning engine\n2 · Repo analysis\n3 · Content generation"]
+
+    subgraph Ext["External Services"]
+        GH["GitHub API\nTrending repos"]
+        FS[("Firestore\nsessions/sessionId\n/discovered_repos\n/posts")]
+        LI["LinkedIn API"]
+        DV["Dev.to API"]
+        DC["Discord Webhook"]
+    end
+
+    Browser -->|"HTTPS + X-Session-ID"| API
+    API -->|"session scoped"| FS
+    Agent <-->|"reasoning loop"| Gemini
+    Tools -->|"search"| GH
+    Tools <-->|"analyze + generate"| Gemini
+    Tools -->|"persist state"| FS
+    Tools -->|"publish post"| LI
+    Tools -->|"publish article"| DV
+    Tools -->|"send alert"| DC
 ```
 
 ---
@@ -99,7 +110,7 @@ GitHub Trending  ──▶  Gemini Analysis  ──▶  Content Generation  ─�
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 18+
+- Node.js 22+
 - A Firebase project (free Spark plan works)
 - A GitHub fine-grained token
 - A Google Gemini API key
